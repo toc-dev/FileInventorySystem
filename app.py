@@ -2,7 +2,8 @@
 This script runs the application using a development server.
 It contains the definition of routes and views for the application.
 """
-
+import secrets
+from PIL import Image
 import json
 import os
 import sqlite3
@@ -16,6 +17,7 @@ from flask_login import (
     UserMixin
     )
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import relationship
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileAllowed
 from wtforms import StringField, PasswordField, BooleanField, SubmitField
@@ -43,7 +45,6 @@ class Config(object):
 def load_user(user_id):
     return User.query.get(int(user_id))
 class User(db.Model, UserMixin):
-    """User model"""
 
     __tablename__ = "users"
 
@@ -52,21 +53,57 @@ class User(db.Model, UserMixin):
     email = db.Column(db.String(250), unique=True, nullable=False)
     image_file = db.Column(db.String(20), nullable=False, default='default.jpg')
     password = db.Column(db.String(250), nullable=False)
+    role_id = db.Column(db.Integer, db.ForeignKey('roles.id'), default=2, nullable=False)
+
+    user_registration = relationship('Registration', backref='registration_user', lazy='dynamic')
 
     def __repr__(self):
         return f"User('{self.email}')"
+
+class Roles(db.Model):
+
+    __tablename__ = "roles"
+
+    id = db.Column(db.Integer, primary_key=True)
+    roles = db.Column(db.String(25))
+    user_role = relationship('User', backref='user_role', lazy='dynamic')
+ 
+class Year(db.Model):
+     __tablename__ = "year"
+
+     id = db.Column(db.Integer, primary_key=True)
+     year = db.Column(db.Integer)
+     year_registration = relationship('Registration', backref='year_registration', lazy='dynamic')
 
 class Session(db.Model):
     __tablename__ = "session"
 
     id = db.Column(db.Integer, primary_key=True)
     session = db.Column(db.String(250), unique=True, nullable=False)
+    
+    session_registration = relationship('Registration', backref='registration_session', lazy='dynamic')
 
-class Registered(db.Model):
-     __tablename__ = "session"
+class Semester(db.Model):
+    __tablename__ = "semester"
 
     id = db.Column(db.Integer, primary_key=True)
-    registered = db.Column(db.Boolean, unique=True, nullable=False)
+    semester = db.Column(db.String(250), unique=True, nullable=False)
+
+class Registered(db.Model):
+    __tablename__ = "registered"
+
+    id = db.Column(db.Integer, primary_key=True)
+    registered = db.Column(db.Boolean, default=False, nullable=False)
+    register_registration = relationship('Registration', backref='registration_register', lazy='dynamic')
+
+class Registration(db.Model):
+    __tablename__ = "registration"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    session_id = db.Column(db.Integer, db.ForeignKey('session.id'), nullable=False)
+    year_id = db.Column(db.Integer, db.ForeignKey('year.id'), nullable=False)
+    registered_id = db.Column(db.Integer, db.ForeignKey('registered.id'), nullable=False)
 
 class RegistrationForm(FlaskForm):
     email = EmailField('Email', validators=[DataRequired()])
@@ -87,15 +124,13 @@ class LoginForm(FlaskForm):
     submit =  SubmitField('Login')
 
 class UpdateAccountForm(FlaskForm):
-    email = EmailField('Email', validators=[DataRequired()])
     picture = FileField('Update Profile Picture', validators=[FileAllowed(['jpg', 'png'])])
     submit =  SubmitField('Update')
 
-    def validate_email(self, email):
-        if email.data != current_user.email:
-            user = User.query.filter_by(email=email.data).first()
-            if user:
-                raise ValidationError('This is a forbidden action')
+class MarkAsRegistered(FlaskForm):
+    registered = BooleanField('Registered')
+    submit = SubmitField('Register')
+
 
 @app.route('/about')
 def about():
@@ -136,10 +171,51 @@ def logout():
     logout_user()
     return redirect(url_for('login'))
 
+def save_picture(form_picture):
+    random_hex = secrets.token_hex(8)
+    _, f_ext = os.path.splitext(form_picture.filename)
+    picture_fn = random_hex + f_ext
+    picture_path = os.path.join(app.root_path, 'static/profilepics', picture_fn)
+    
+    output_size = (125, 125)
+    i = Image.open(form_picture)
+    i.thumbnail(output_size)
+    
+    i.save(picture_path)
+    return picture_fn
+
+@app.route('/search', methods=['POST', 'GET'])
+def search():
+    #curr_user = User.query.get(current_user)
+    #if curr_user.role_id == 2:
+    #    flash('You cannot even perform this action', 'unsuccessful')
+    return render_template('search.html')
+
+@app.route('/results', methods=['POST'])
+def results():
+    if request.method == 'POST':
+        emails = request.form.get('email')
+        results = User.query.filter(User.email.match(emails))
+        print(results)
+     
+        if emails in results:
+            user_email = results.email
+        flash("Email not found")
+
+
+    return render_template('results.html', email=user_email)
+
 @app.route('/dashboard', methods=['GET', 'POST'])
 @login_required
 def dashboard():
     form = UpdateAccountForm()
+    if form.validate_on_submit():
+        if form.picture.data:
+            picture_file = save_picture(form.picture.data)
+            current_user.image_file = picture_file
+        db.session.commit()
+        flash('Your picture has been updated!', 'success')
+        return redirect(url_for('dashboard'))
     image_file = url_for('static', filename='profilepics/' + current_user.image_file)
     return render_template('dashboard.html', title='Dashboard', image_file=image_file, form=form)
 

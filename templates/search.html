@@ -1,0 +1,14 @@
+﻿{% extends "layout.html" %}
+{% block title %}search page {% endblock %}
+{%block content %}
+<form action={{ url_for('results') }} method="POST">
+    <div class="col-xs-3">
+        <p>
+            <input type="text" class="form-control" name="email" placeholder="Search student by UNN email" />
+        </p>
+    </div>
+    <div>
+        <input class="btn btn-primary" type="submit" value="Search" />
+    </div>
+</form>
+{% endblock %}
